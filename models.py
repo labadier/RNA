@@ -1,0 +1,166 @@
+import typing, jax, flax, optax
+from tqdm import tqdm
+import numpy as np
+
+from functools import partial
+from utils import compute_macro_f1, compute_accuracy
+
+from flax.training import train_state as flax_train_state#, checkpoints
+
+from jax.nn.initializers import normal as normal_init
+from jax import numpy as jnp
+
+
+
+class MLP(flax.linen.Module):
+
+  units: typing.Sequence[ int ]
+
+  def setup(self):
+    self.layers = [flax.linen.Dense(neurons, kernel_init=normal_init(0.02)) for neurons in self.units]
+
+  def __call__(self,  x:jnp.ndarray) -> jnp.ndarray:
+
+    y_hat = x
+    for i, layer in enumerate(self.layers):
+      if i < len(self.layers) - 1:
+        y_hat = flax.linen.leaky_relu(layer(y_hat))
+      else: y_hat = layer(y_hat)
+    return y_hat
+
+def schedule(step, lr, decay):
+  return lr * (1./ (1. + decay * step))
+
+def create_state(rng, model_cls, opt, input_shape, learning_rate, momentum, decay=None): 
+
+  """Create the training state given a model class. """ 
+
+  model = model_cls([512, 512, 10])   
+
+  # tx = optax.sgd(learning_rate=(lambda step: -schedule(step, learning_rate, decay)), momentum=momentum) 
+  tx = optax.chain(
+        optax.trace(decay=momentum),
+        # Note that we still want a negative value for scaling the updates!
+        optax.scale_by_schedule(lambda step: -schedule(step, learning_rate, decay)),
+    )
+  variables = model.init(rng, jnp.ones(input_shape))   
+
+  state = flax_train_state.TrainState.create(apply_fn=model.apply, tx=tx, 
+      params=variables['params'])
+  
+  return state
+
+@jax.jit
+def train_step(model_state, data_batch):
+
+  def loss_fn(params, data):
+
+    logits = model_state.apply_fn( {'params': params},
+      data)
+
+    labels = jax.nn.one_hot(data_batch['labels'], 10)
+    loss = optax.softmax_cross_entropy(logits, labels).mean()
+    return loss, logits
+
+
+  (loss, logits), grads = jax.value_and_grad(loss_fn, has_aux=True)(model_state.params, data_batch['data'])
+  new_model_state = model_state.apply_gradients(grads=grads)
+  
+  return new_model_state, loss, logits
+
+
+@jax.jit
+def eval_step(model_sate, data_batch):
+
+  logits = model_sate.apply_fn( {'params': model_sate.params},
+        data_batch['data'])
+
+  return flax.linen.softmax(logits)
+
+
+def eval_dev_data(devloader, model_state):
+
+  eval_preds = None
+  eval_labels = None
+
+  for batch, batch_data in enumerate(devloader):
+
+    if eval_preds is None:
+      eval_preds = eval_step(model_state, {'data':batch_data[0].numpy()})
+      eval_labels = batch_data[1].numpy()
+    else:
+      eval_preds = jnp.concatenate([eval_preds, eval_step(model_state, {'data':batch_data[0].numpy()})])
+      eval_labels = np.concatenate([eval_labels, batch_data[1].numpy()])
+
+  dev_f1 = compute_macro_f1(logits=eval_preds,  labels=eval_labels)
+  dev_error = 1. - compute_accuracy(logits=eval_preds, labels=eval_labels)
+
+  eval_labels = jax.nn.one_hot(eval_labels, 10)
+  dev_loss = optax.softmax_cross_entropy(eval_preds, eval_labels).mean().item()
+  
+
+  return dev_loss, dev_f1, dev_error
+
+# def restore_checkpoint(state, workdir): 
+#   return checkpoints.restore_checkpoint(workdir, state) 
+
+# def save_model(model_state, save_path):
+
+#    if jax.process_index() == 0: 
+    
+#      state = jax.device_get(jax.tree_map(lambda x: x[0], model_state)) 
+#      step = int(state.step) 
+#      checkpoints.save_checkpoint(save_path, model_state, step, keep=3) 
+
+
+def train_model(model_state, epoches, batch_size, trainloader, devloader):
+
+  eloss = []
+  edev_loss = []
+  eerror = []
+  edev_error = []
+
+  best_error = 1e30
+
+  for epoch in range(epoches):
+
+    itr = tqdm(enumerate(trainloader))
+    itr.set_description(f'Epoch: {epoch}')
+
+    running_loss = None
+    running_f1 = None
+    running_error = None
+
+    for batch, batch_data in itr:
+
+      model_state, loss, logits = train_step(model_state,
+                          {'data':batch_data[0].numpy(), 'labels':batch_data[1].numpy()})
+
+      if running_loss is None:
+        running_loss = loss.item()
+        running_f1 = compute_macro_f1(logits=logits, labels=batch_data[1].numpy())
+        running_error = 1. - compute_accuracy(logits=logits, labels=batch_data[1].numpy())
+      else:
+        running_loss = (running_loss + loss.item())/2.
+        running_f1  = (running_f1 + compute_macro_f1(logits=logits, labels=batch_data[1].numpy()))/2.
+        running_error = (running_error + 1. - compute_accuracy(logits=logits, labels=batch_data[1].numpy()))/2.
+
+      if batch == len(trainloader) - 1:
+        l, f1, err = eval_dev_data(devloader, model_state)
+        itr.set_postfix_str(f'loss: {running_loss:.2f} f1: {running_f1:.2f} dev_loss: {l:.2f} dev_f1: {f1:.2f} dev_error: {err:.2f}' )
+        eloss += [running_loss]
+        edev_loss += [l]
+        eerror += [running_error]
+        edev_error += [err]
+
+        if err < best_error:
+          best_error = err
+          # save_model(model_state, save_path='model')
+
+      else:
+        itr.set_postfix_str(f'loss: {running_loss:.2f} f1: {running_f1:.2f}')
+  
+  return {'loss': eloss, 'dev_loss': edev_loss, 'error': eerror, 'dev_error': edev_error}
+    
+
+
