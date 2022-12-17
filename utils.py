@@ -35,7 +35,7 @@ def imshow(img):
 def plot_training(history, path):
     
     plt.plot(history['error'])
-    plt.plot(history['error_dev'])
+    plt.plot(history['dev_error'])
     plt.legend(['error', 'dev_error'], loc='upper left')
     plt.ylabel('Error')
     plt.xlabel('Epoch')
