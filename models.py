@@ -5,7 +5,7 @@ import numpy as np
 from functools import partial
 from utils import compute_macro_f1, compute_accuracy
 
-from flax.training import train_state as flax_train_state#, checkpoints
+from flax.training import train_state as flax_train_state, checkpoints
 
 from jax.nn.initializers import normal as normal_init
 from jax import numpy as jnp
@@ -17,7 +17,7 @@ class MLP(flax.linen.Module):
   units: typing.Sequence[ int ]
 
   def setup(self):
-    self.layers = [flax.linen.Dense(neurons, kernel_init=normal_init(0.02)) for neurons in self.units]
+    self.layers = [flax.linen.Dense(neurons, kernel_init=normal_init(0.02), bias_init=normal_init(0.01)) for neurons in self.units]
 
   def __call__(self,  x:jnp.ndarray) -> jnp.ndarray:
 
@@ -28,8 +28,8 @@ class MLP(flax.linen.Module):
       else: y_hat = layer(y_hat)
     return y_hat
 
-def schedule(step, lr, decay):
-  return lr * (1./ (1. + decay * step))
+# def schedule(step, lr, decay):
+#   return lr * (1./ (1. + decay * step))
 
 def create_state(rng, model_cls, opt, input_shape, learning_rate, momentum, decay=None): 
 
@@ -37,12 +37,16 @@ def create_state(rng, model_cls, opt, input_shape, learning_rate, momentum, deca
 
   model = model_cls([512, 512, 10])   
 
-  # tx = optax.sgd(learning_rate=(lambda step: -schedule(step, learning_rate, decay)), momentum=momentum) 
-  tx = optax.chain(
-        optax.trace(decay=momentum),
-        # Note that we still want a negative value for scaling the updates!
-        optax.scale_by_schedule(lambda step: -schedule(step, learning_rate, decay)),
-    )
+  if opt == 'sgd':
+    tx = optax.sgd(learning_rate=optax.exponential_decay(init_value=learning_rate, decay_rate=0.5, transition_steps=20), momentum=momentum) 
+  
+    # tx = optax.chain(
+    #       optax.trace(decay=momentum),
+    #       optax.scale_by_schedule(lambda step: -schedule(step, learning_rate, decay)),
+    #   )
+  elif opt == 'adam':
+    tx = optax.adam(learning_rate=learning_rate)
+
   variables = model.init(rng, jnp.ones(input_shape))   
 
   state = flax_train_state.TrainState.create(apply_fn=model.apply, tx=tx, 
@@ -101,17 +105,11 @@ def eval_dev_data(devloader, model_state):
 
   return dev_loss, dev_f1, dev_error
 
-# def restore_checkpoint(state, workdir): 
-#   return checkpoints.restore_checkpoint(workdir, state) 
+def restore_checkpoint(state, workdir): 
+  return checkpoints.restore_checkpoint(workdir, state) 
 
-# def save_model(model_state, save_path):
-
-#    if jax.process_index() == 0: 
-    
-#      state = jax.device_get(jax.tree_map(lambda x: x[0], model_state)) 
-#      step = int(state.step) 
-#      checkpoints.save_checkpoint(save_path, model_state, step, keep=3) 
-
+def save_model(model_state, save_path, step = 0):
+   checkpoints.save_checkpoint(ckpt_dir=save_path, target=model_state, step=step)
 
 def train_model(model_state, epoches, batch_size, trainloader, devloader):
 
@@ -147,7 +145,7 @@ def train_model(model_state, epoches, batch_size, trainloader, devloader):
 
       if batch == len(trainloader) - 1:
         l, f1, err = eval_dev_data(devloader, model_state)
-        itr.set_postfix_str(f'loss: {running_loss:.2f} f1: {running_f1:.2f} dev_loss: {l:.2f} dev_f1: {f1:.2f} dev_error: {err:.2f}' )
+        itr.set_postfix_str(f'loss: {running_loss:.2f} f1: {running_f1:.2f} dev_loss: {l:.2f} dev_f1: {f1:.2f} dev_errorX100: {err*100:.2f}' )
         eloss += [running_loss]
         edev_loss += [l]
         eerror += [running_error]
@@ -155,7 +153,7 @@ def train_model(model_state, epoches, batch_size, trainloader, devloader):
 
         if err < best_error:
           best_error = err
-          # save_model(model_state, save_path='model')
+          save_model(model_state, save_path='model')
 
       else:
         itr.set_postfix_str(f'loss: {running_loss:.2f} f1: {running_f1:.2f}')
