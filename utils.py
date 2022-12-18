@@ -40,6 +40,9 @@ def plot_training(history, path):
     plt.ylabel('Error')
     plt.xlabel('Epoch')
 
+    x = np.argmin(history['dev_error'])
+    plt.plot(x,history['dev_error'][x], marker="o", color="red")
+
     plt.savefig(os.path.join(path, 'train_history.png'))
 
 def load_dataset(batch_size):

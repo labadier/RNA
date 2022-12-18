@@ -109,7 +109,7 @@ def restore_checkpoint(state, workdir):
   return checkpoints.restore_checkpoint(workdir, state) 
 
 def save_model(model_state, save_path, step = 0):
-   checkpoints.save_checkpoint(ckpt_dir=save_path, target=model_state, step=step)
+   checkpoints.save_checkpoint(ckpt_dir=save_path, target=model_state, overwrite=True, step=step)
 
 def train_model(model_state, epoches, batch_size, trainloader, devloader):
 

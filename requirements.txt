@@ -1,0 +1,7 @@
+jax==0.3.25
+jaxlib@https://storage.googleapis.com/jax-releases/cuda11/jaxlib-0.3.25+cuda11.cudnn805-cp310-cp310-manylinux2014_x86_64.whl
+torch
+torchvision 
+scikit-learn
+h5py
+tqdm
