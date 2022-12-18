@@ -62,17 +62,17 @@ def train_step(model_state, data_batch):
 
     logits, mutables = model_state.apply_fn( {'params': params, 
       'batch_stats': model_state.batch_stats},
-      data, mutables=['batch_stats'])
+      data, mutable=['batch_stats'])
 
     labels = jax.nn.one_hot(data_batch['labels'], 10)
     loss = optax.softmax_cross_entropy(logits, labels).mean()
-    return loss, logits, mutables
+    return loss, {'logits':logits, 'mutables':mutables}
 
 
-  (loss, logits, mutables), grads = jax.value_and_grad(loss_fn, has_aux=True)(model_state.params, data_batch['data'])
-  new_model_state = model_state.apply_gradients(grads=grads, batch_stats=mutables['batch_stats'])
+  (loss, aux), grads = jax.value_and_grad(loss_fn, has_aux=True)(model_state.params, data_batch['data'])
+  new_model_state = model_state.apply_gradients(grads=grads, batch_stats=aux['mutables']['batch_stats'])
   
-  return new_model_state, loss, logits
+  return new_model_state, loss, aux['logits']
 
 
 @jax.jit
