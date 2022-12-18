@@ -37,7 +37,7 @@ def plot_training(history, path):
     plt.plot(history['error'])
     plt.plot(history['dev_error'])
     plt.legend(['error', 'dev_error'], loc='upper left')
-    plt.ylabel('Error')
+    plt.ylabel('Errorx100')
     plt.xlabel('Epoch')
 
     x = np.argmin(history['dev_error'])

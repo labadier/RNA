@@ -2,6 +2,7 @@ import typing, jax, flax, optax
 from tqdm import tqdm
 import numpy as np
 
+
 from functools import partial
 from utils import compute_macro_f1, compute_accuracy
 
@@ -10,7 +11,8 @@ from flax.training import train_state as flax_train_state, checkpoints
 from jax.nn.initializers import normal as normal_init
 from jax import numpy as jnp
 
-
+class TrainState(flax_train_state.TrainState):
+  batch_stats: typing.Any
 
 class MLP(flax.linen.Module):
 
@@ -18,18 +20,22 @@ class MLP(flax.linen.Module):
 
   def setup(self):
     self.layers = [flax.linen.Dense(neurons, kernel_init=normal_init(0.02), bias_init=normal_init(0.01)) for neurons in self.units]
+    self.batch_norm = [flax.linen.BatchNorm(axis=-1, scale_init=normal_init(0.02), dtype=jnp.float32) for i in range(len(self.units) - 1)]
 
-  def __call__(self,  x:jnp.ndarray) -> jnp.ndarray:
+  def __call__(self,  x:jnp.ndarray, train: bool = True) -> jnp.ndarray:
 
     y_hat = x
     for i, layer in enumerate(self.layers):
+
       if i < len(self.layers) - 1:
-        y_hat = flax.linen.leaky_relu(layer(y_hat))
+
+        y_hat = layer(y_hat)
+        y_hat = self.batch_norm[i](y_hat, use_running_average=not train)
+        y_hat = flax.linen.leaky_relu(y_hat)
+
       else: y_hat = layer(y_hat)
     return y_hat
 
-# def schedule(step, lr, decay):
-#   return lr * (1./ (1. + decay * step))
 
 def create_state(rng, model_cls, opt, input_shape, learning_rate, momentum, decay=None): 
 
@@ -39,18 +45,13 @@ def create_state(rng, model_cls, opt, input_shape, learning_rate, momentum, deca
 
   if opt == 'sgd':
     tx = optax.sgd(learning_rate=optax.exponential_decay(init_value=learning_rate, decay_rate=0.5, transition_steps=20), momentum=momentum) 
-  
-    # tx = optax.chain(
-    #       optax.trace(decay=momentum),
-    #       optax.scale_by_schedule(lambda step: -schedule(step, learning_rate, decay)),
-    #   )
   elif opt == 'adam':
     tx = optax.adam(learning_rate=learning_rate)
 
   variables = model.init(rng, jnp.ones(input_shape))   
 
-  state = flax_train_state.TrainState.create(apply_fn=model.apply, tx=tx, 
-      params=variables['params'])
+  state = TrainState.create(apply_fn=model.apply, tx=tx, 
+      params=variables['params'], batch_stats=variables['batch_stats'])
   
   return state
 
@@ -59,16 +60,17 @@ def train_step(model_state, data_batch):
 
   def loss_fn(params, data):
 
-    logits = model_state.apply_fn( {'params': params},
-      data)
+    logits, mutables = model_state.apply_fn( {'params': params, 
+      'batch_stats': model_state.batch_stats},
+      data, mutables=['batch_stats'])
 
     labels = jax.nn.one_hot(data_batch['labels'], 10)
     loss = optax.softmax_cross_entropy(logits, labels).mean()
-    return loss, logits
+    return loss, logits, mutables
 
 
-  (loss, logits), grads = jax.value_and_grad(loss_fn, has_aux=True)(model_state.params, data_batch['data'])
-  new_model_state = model_state.apply_gradients(grads=grads)
+  (loss, logits, mutables), grads = jax.value_and_grad(loss_fn, has_aux=True)(model_state.params, data_batch['data'])
+  new_model_state = model_state.apply_gradients(grads=grads, batch_stats=mutables['batch_stats'])
   
   return new_model_state, loss, logits
 
@@ -76,8 +78,9 @@ def train_step(model_state, data_batch):
 @jax.jit
 def eval_step(model_sate, data_batch):
 
-  logits = model_sate.apply_fn( {'params': model_sate.params},
-        data_batch['data'])
+  logits = model_sate.apply_fn( {'params': model_sate.params, 
+        'batch_stats': model_sate.batch_stats},
+        data_batch['data'], train=False, mutable=False)
 
   return flax.linen.softmax(logits)
 
