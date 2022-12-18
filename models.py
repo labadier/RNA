@@ -148,11 +148,12 @@ def train_model(model_state, epoches, batch_size, trainloader, devloader):
 
       if batch == len(trainloader) - 1:
         l, f1, err = eval_dev_data(devloader, model_state)
-        itr.set_postfix_str(f'loss: {running_loss:.2f} f1: {running_f1:.2f} dev_loss: {l:.2f} dev_f1: {f1:.2f} dev_errorX100: {err*100:.2f}' )
+        running_loss, running_f1, running_error = eval_dev_data(trainloader, model_state)
+        itr.set_postfix_str(f'loss: {running_loss:.2f} f1: {running_f1:.2f} errorX100: {running_error*100:.2f} dev_loss: {l:.2f} dev_f1: {f1:.2f} dev_errorX100: {err*100:.2f}' )
         eloss += [running_loss]
         edev_loss += [l]
-        eerror += [running_error*100]
-        edev_error += [err*100]
+        eerror += [running_error]
+        edev_error += [err]
 
         if err < best_error:
           best_error = err
