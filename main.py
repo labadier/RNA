@@ -62,7 +62,7 @@ if __name__ == '__main__':
 
   if model == 'mlp':
 
-    model_state = create_state(key, MLP, opt, next(iter(trainloader))[0].numpy().shape, lr, mommentum, decay)
+    model_state = create_state(key, MLP, opt, next(iter(trainloader))[0].numpy().shape, lr, mommentum,epoches=epoches, decay=decay)
     
     if mode == 'train':
       history = train_model(model_state=model_state, epoches=epoches, batch_size=batch_size,

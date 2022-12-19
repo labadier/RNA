@@ -19,7 +19,7 @@ class parameters:
   lr = 1e-2
   momentum = 0.9
   batch_size = 128
-  epoches = 20
+  epoches = 2000
   opt = 'sgd'
   decay = 1e-6
 
@@ -53,7 +53,7 @@ def load_dataset(batch_size):
       transforms.Lambda(lambda x: x.reshape(-1))])
 
   transform_train = transforms.Compose([
-        transforms.RandomRotation(45),
+        transforms.RandomRotation(7.5),
         transforms.ToTensor(),
         transforms.Normalize(0, 255),
         transforms.Lambda(lambda x: x.reshape(-1))

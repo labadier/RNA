@@ -36,7 +36,7 @@ class MLP(flax.linen.Module):
     return y_hat
 
 
-def create_state(rng, model_cls, opt, input_shape, learning_rate, momentum, decay=None): 
+def create_state(rng, model_cls, opt, input_shape, learning_rate, momentum, epoches, decay=None): 
 
   """Create the training state given a model class. """ 
 
@@ -45,7 +45,7 @@ def create_state(rng, model_cls, opt, input_shape, learning_rate, momentum, deca
   if opt == 'sgd':
     tx = optax.sgd(learning_rate=optax.exponential_decay(init_value=learning_rate, decay_rate=0.5, transition_steps=20), momentum=momentum) 
   elif opt == 'adam':
-    tx = optax.adam(learning_rate=learning_rate)
+    tx = optax.adam(learning_rate=optax.cosine_decay_schedule(init_value=learning_rate, decay_steps=epoches, alpha=0.0))
 
   variables = model.init(rng, jnp.ones(input_shape))   
 
