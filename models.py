@@ -29,9 +29,8 @@ class MLP(flax.linen.Module):
 
       if i < len(self.layers) - 1:
 
-        y_hat = layer(y_hat)
+        y_hat = flax.linen.leaky_relu(layer(y_hat))
         y_hat = self.batch_norm[i](y_hat, use_running_average=not train)
-        y_hat = flax.linen.leaky_relu(y_hat)
 
       else: y_hat = layer(y_hat)
     return y_hat
@@ -41,7 +40,7 @@ def create_state(rng, model_cls, opt, input_shape, learning_rate, momentum, deca
 
   """Create the training state given a model class. """ 
 
-  model = model_cls([512, 512, 10])   
+  model = model_cls([2500, 2000, 1500, 1000, 500, 10])   
 
   if opt == 'sgd':
     tx = optax.sgd(learning_rate=optax.exponential_decay(init_value=learning_rate, decay_rate=0.5, transition_steps=20), momentum=momentum) 

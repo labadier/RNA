@@ -52,7 +52,14 @@ def load_dataset(batch_size):
       transforms.Normalize(0, 255),
       transforms.Lambda(lambda x: x.reshape(-1))])
 
-  train_loader = DataLoader(datasets.MNIST(root='./data', train=True, download=True, transform=transform),
+  transform_train = transforms.Compose([
+        transforms.RandomRotation(45),
+        transforms.ToTensor(),
+        transforms.Normalize(0, 255),
+        transforms.Lambda(lambda x: x.reshape(-1))
+      ])
+
+  train_loader = DataLoader(datasets.MNIST(root='./data', train=True, download=True, transform=transform_train),
                                             batch_size=batch_size,
                                             shuffle=True)
 
