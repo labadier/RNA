@@ -149,9 +149,9 @@ def train_model(model_state, epoches, batch_size, trainloader, devloader):
         running_preds = jnp.concatenate([running_preds, flax.linen.softmax(logits)])
         running_labels = np.concatenate([running_labels, batch_data[1].numpy()])
 
-        running_f1 = compute_macro_f1(logits=running_preds, labels=running_labels)
-        running_error = 1. - compute_accuracy(logits=running_preds, labels=running_labels)
-        running_loss = (running_loss + loss.item())/2.
+      running_f1 = compute_macro_f1(logits=running_preds, labels=running_labels)
+      running_error = 1. - compute_accuracy(logits=running_preds, labels=running_labels)
+      running_loss = (running_loss + loss.item())/2.
         
       if batch == len(trainloader) - 1:
         l, f1, err = eval_dev_data(devloader, model_state)
