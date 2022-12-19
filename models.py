@@ -132,6 +132,9 @@ def train_model(model_state, epoches, batch_size, trainloader, devloader):
     running_f1 = None
     running_error = None
 
+    running_preds = None
+    running_labels = None
+
     for batch, batch_data in itr:
 
       model_state, loss, logits = train_step(model_state,
@@ -139,16 +142,19 @@ def train_model(model_state, epoches, batch_size, trainloader, devloader):
 
       if running_loss is None:
         running_loss = loss.item()
-        running_f1 = compute_macro_f1(logits=logits, labels=batch_data[1].numpy())
-        running_error = 1. - compute_accuracy(logits=logits, labels=batch_data[1].numpy())
+        running_preds = flax.linen.softmax(logits)
+        running_labels = batch_data[1].numpy()
       else:
         running_loss = (running_loss + loss.item())/2.
-        running_f1  = (running_f1 + compute_macro_f1(logits=logits, labels=batch_data[1].numpy()))/2.
-        running_error = (running_error + 1. - compute_accuracy(logits=logits, labels=batch_data[1].numpy()))/2.
+        running_preds = jnp.concatenate([running_preds, flax.linen.softmax(logits)])
+        running_labels = np.concatenate([running_labels, batch_data[1].numpy()])
 
+        running_f1 = compute_macro_f1(logits=running_preds, labels=running_labels)
+        running_error = 1. - compute_accuracy(logits=running_preds, labels=running_labels)
+        running_loss = (running_loss + loss.item())/2.
+        
       if batch == len(trainloader) - 1:
         l, f1, err = eval_dev_data(devloader, model_state)
-        running_loss, running_f1, running_error = eval_dev_data(trainloader, model_state)
         itr.set_postfix_str(f'loss: {running_loss:.2f} f1: {running_f1:.2f} errorX100: {running_error*100:.2f} dev_loss: {l:.2f} dev_f1: {f1:.2f} dev_errorX100: {err*100:.2f}' )
         eloss += [running_loss]
         edev_loss += [l]
@@ -160,7 +166,7 @@ def train_model(model_state, epoches, batch_size, trainloader, devloader):
           save_model(model_state, save_path='model')
 
       else:
-        itr.set_postfix_str(f'loss: {running_loss:.2f} f1: {running_f1:.2f}')
+        itr.set_postfix_str(f'loss: {running_loss:.2f} f1: {running_f1:.2f} errorX100: {running_error*100:.2f}')
   
   return {'loss': eloss, 'dev_loss': edev_loss, 'error': eerror, 'dev_error': edev_error}
     
